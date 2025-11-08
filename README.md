@@ -97,7 +97,7 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
    - Click **"More info"** on the SmartScreen popup
    - Click **"Run anyway"** button
    
-   ![Windows SmartScreen Bypass](https://i.imgur.com/SmartScreen.png)
+   ![Windows SmartScreen Bypass](https://i.imgur.com/28le4sB.png)
    
    *The app is safe - it's open source and you can review all the code in this repository. SmartScreen blocks unsigned apps by default to protect users.*
 
