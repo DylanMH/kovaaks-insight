@@ -1,18 +1,17 @@
 {
   "name": "kovaaks-insight",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "main": "electron/main.js",
+  "description": "Personal performance tracker for Kovaaks FPS Aim Trainer",
+  "license": "ISC",
   "scripts": {
     "start": "electron .",
     "dev": "npm run dev --prefix frontend",
     "build": "npm run build --prefix frontend",
-    "build:start": "npm run build && npm run start",
-    "dist": "electron-builder"
+    "dist:win": "npm run build && electron-builder -w",
+    "dist:win:portable": "npm run build && electron-builder -w --win portable",
+    "publish:win": "npm run build && electron-builder -w --publish always"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "Personal performance tracker for Kovaaks FPS Aim Trainer",
   "dependencies": {
     "chokidar": "^4.0.3",
     "express": "^5.1.0",
@@ -27,21 +26,34 @@
   "build": {
     "appId": "com.kovaaksinsight.app",
     "productName": "Kovaaks Insight",
+    "directories": { "output": "dist" },
+
+
     "files": [
       "electron/**/*",
       "backend/**/*",
       "public/**/*",
+      "frontend/dist/**/*",
       "package.json"
     ],
-    "directories": {
-      "output": "dist"
-    },
+
+
+    "asar": true,
+    "extraResources": [
+    ],
+
     "win": {
-      "target": "dir"
+      "target": [ "nsis" ],
+      "artifactName": "Kovaaks-Insight-${version}-Setup.${ext}",
+      "icon": "build/icon.ico"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true
-    }
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    },
+    "publish": [
+      { "provider": "github" }
+    ]
   }
 }

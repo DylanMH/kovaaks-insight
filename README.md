@@ -6,6 +6,8 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Built with](https://img.shields.io/badge/built%20with-Electron-47848F)
 
+👉 [Download the latest](https://github.com/DylanMH/kovaaks-insight/releases/tag/v1.0.0)
+
 ## ✨ Features
 
 ### 📊 **Performance Tracking**
