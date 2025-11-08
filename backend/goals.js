@@ -19,12 +19,11 @@ const goals = {
         return { generated: 0, reason: 'insufficient_runs' };
       }
 
-      // Check existing active goals to avoid duplicates
+      // Check existing active goals to avoid duplicates (check all active, not just incomplete)
       const existingGoals = await db.all(`
-        SELECT g.goal_type 
+        SELECT DISTINCT g.goal_type 
         FROM goals g
-        LEFT JOIN goal_progress gp ON g.id = gp.goal_id
-        WHERE g.is_active = 1 AND (gp.is_completed = 0 OR gp.is_completed IS NULL)
+        WHERE g.is_active = 1
       `);
       
       const existingTypes = new Set(existingGoals.map(g => g.goal_type));

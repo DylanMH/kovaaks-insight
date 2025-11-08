@@ -6,6 +6,7 @@ const { initDb } = require("../backend/db");
 const { startWatcher } = require("../backend/watcher");
 const { startServer, initializeStatsFolder } = require("../backend/server");
 const { backfillHashes } = require("../backend/backfill");
+const { importPlaylistsAsPacks } = require("../backend/playlistImporter");
 
 let mainWindow;
 let watcher;
@@ -19,6 +20,11 @@ process.on('unhandledRejection', (err) => {
 const isDev = process.env.NODE_ENV === 'development' || fs.existsSync(path.join(__dirname, '../frontend/vite.config.ts'));
 
 function createWindow(showSetup = false) {
+    // Use .ico for Windows, .png for other platforms
+    const iconPath = process.platform === 'win32' 
+        ? path.join(__dirname, '../assets/icon.ico')
+        : path.join(__dirname, '../assets/icon.png');
+
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
@@ -28,7 +34,7 @@ function createWindow(showSetup = false) {
             nodeIntegration: true,
             contextIsolation: false,
         },
-        icon: path.join(__dirname, '../assets/icon.png'), // Optional: add icon later
+        icon: iconPath,
     });
 
     if (showSetup) {
@@ -56,6 +62,12 @@ app.whenReady().then(async () => {
     let cfg = {};
     if (fs.existsSync(configPath)) {
         cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        console.log('📋 Config loaded:', {
+            statsPath: cfg.stats_path,
+            playlistsPath: cfg.playlists_path,
+            autoGoals: cfg.auto_goals,
+            autoImportPlaylists: cfg.auto_import_playlists
+        });
     }
 
     // Database lives in userData directory (works in both dev and packaged app)
@@ -76,15 +88,24 @@ app.whenReady().then(async () => {
             `, [cfg.playlists_path]);
         }
         
-        watcher = startWatcher(cfg.stats_path, db);
-        
-        // Start both the backend API server and ensure frontend is ready
+        // Start backend API server
         startServer(db, cfg.port || 3000);
         
-        // Wait a moment for servers to start, then show dashboard
-        setTimeout(() => {
-            createWindow(false); // Show React dashboard
-        }, 2000);
+        console.log('⏳ Initializing data... Please wait...');
+        
+        // Wait for initial CSV scan to complete before showing UI
+        watcher = await startWatcher(cfg.stats_path, db);
+        
+        // Auto-import playlists if enabled
+        if (cfg.playlists_path && cfg.auto_import_playlists) {
+            console.log('🎵 Auto-importing playlists...');
+            await importPlaylistsAsPacks(cfg.playlists_path, db);
+        }
+        
+        console.log('✅ Data loaded! Launching interface...');
+        
+        // Show dashboard immediately after data is ready
+        createWindow(false); // Show React dashboard
     } else {
         // Show setup screen first
         createWindow(true); // Show setup HTML
@@ -124,20 +145,46 @@ app.whenReady().then(async () => {
             `, [newCfg.playlists_path]);
         }
         
-        watcher = startWatcher(newCfg.stats_path, db);
+        // Save auto-goals setting
+        if (newCfg.auto_goals !== undefined) {
+            await db.run(`
+                INSERT OR REPLACE INTO app_settings (key, value)
+                VALUES ('autoGoals', ?)
+            `, [newCfg.auto_goals ? '1' : '0']);
+        }
+        
+        // Save auto-import-playlists setting
+        if (newCfg.auto_import_playlists !== undefined) {
+            await db.run(`
+                INSERT OR REPLACE INTO app_settings (key, value)
+                VALUES ('auto_import_playlists', ?)
+            `, [newCfg.auto_import_playlists ? '1' : '0']);
+        }
+        
         startServer(db, newCfg.port || 3000);
         
-        // Run backfill for existing data
+        console.log('⏳ Scanning CSV files... This may take a moment...');
+        
+        // Wait for initial CSV scan to complete
+        watcher = await startWatcher(newCfg.stats_path, db);
+        
+        // Auto-import playlists if enabled
+        if (newCfg.playlists_path && newCfg.auto_import_playlists) {
+            console.log('🎵 Auto-importing playlists...');
+            await importPlaylistsAsPacks(newCfg.playlists_path, db);
+        }
+        
+        console.log('✅ Setup complete! Loading dashboard...');
+        
+        // Run backfill for existing data (async, don't wait)
         backfillHashes(db).then(r => console.log('hash backfill:', r)).catch(console.error);
         
-        // Wait for services to start, then switch to dashboard
-        setTimeout(() => {
-            if (isDev && fs.existsSync(path.join(__dirname, '../frontend'))) {
-                mainWindow.loadURL('http://localhost:5173');
-            } else {
-                mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
-            }
-        }, 2000);
+        // Switch to dashboard immediately after scan completes
+        if (isDev && fs.existsSync(path.join(__dirname, '../frontend'))) {
+            mainWindow.loadURL('http://localhost:5173');
+        } else {
+            mainWindow.loadFile(path.join(__dirname, '../public/index.html'));
+        }
         
         return true;
     });

@@ -624,6 +624,120 @@ function startServer(db, port = 3000) {
         }
     });
 
+    // Clean up duplicate goals (keeps only the most recent of each type)
+    app.post('/api/goals/cleanup-duplicates', async (req, res) => {
+        try {
+            // Find duplicate goal types
+            const duplicates = await db.all(`
+                SELECT goal_type, COUNT(*) as count
+                FROM goals
+                WHERE is_active = 1
+                GROUP BY goal_type
+                HAVING count > 1
+            `);
+
+            let removed = 0;
+            
+            for (const dup of duplicates) {
+                // Get all goals of this type, ordered by creation date
+                const goals = await db.all(`
+                    SELECT id, created_at
+                    FROM goals
+                    WHERE goal_type = ? AND is_active = 1
+                    ORDER BY created_at DESC
+                `, [dup.goal_type]);
+
+                // Keep the newest, delete the rest
+                for (let i = 1; i < goals.length; i++) {
+                    await db.run(`
+                        UPDATE goals SET is_active = 0 WHERE id = ?
+                    `, [goals[i].id]);
+                    removed++;
+                }
+            }
+
+            res.json({ 
+                success: true, 
+                removed: removed,
+                message: `Removed ${removed} duplicate goals`
+            });
+        } catch (e) {
+            console.error(e);
+            res.status(500).json({ error: 'cleanup failed' });
+        }
+    });
+
+    // Test endpoint to simulate goal achievement (development only)
+    app.post('/api/goals/test-achievement', async (req, res) => {
+        try {
+            // Get first active goal
+            const goal = await db.get(`
+                SELECT g.*, t.name as target_task_name
+                FROM goals g
+                LEFT JOIN tasks t ON g.target_task_id = t.id
+                WHERE g.is_active = 1
+                LIMIT 1
+            `);
+
+            if (!goal) {
+                return res.status(404).json({ error: 'No active goals found' });
+            }
+
+            // First, reset the goal (mark as incomplete)
+            await db.run(`
+                UPDATE goal_progress 
+                SET is_completed = 0, completed_at = NULL
+                WHERE goal_id = ?
+            `, [goal.id]);
+
+            // Wait a tiny bit to ensure different timestamp
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Now mark it as completed with current timestamp
+            await db.run(`
+                INSERT OR REPLACE INTO goal_progress (goal_id, current_value, is_completed, completed_at)
+                VALUES (?, ?, 1, datetime('now'))
+            `, [goal.id, goal.target_value]);
+
+            res.json({ 
+                success: true, 
+                message: 'Goal marked as completed for testing (can be triggered again)',
+                goal: goal
+            });
+        } catch (e) {
+            console.error(e);
+            res.status(500).json({ error: 'test achievement failed' });
+        }
+    });
+
+    // Check for newly achieved goals (for notifications)
+    app.get('/api/goals/check-achievements', async (req, res) => {
+        try {
+            const { since } = req.query; // Timestamp to check from
+            
+            // Get goals that were recently completed
+            const recentlyCompleted = await db.all(`
+                SELECT 
+                    g.*,
+                    gp.current_value,
+                    gp.completed_at,
+                    t.name as target_task_name
+                FROM goals g
+                LEFT JOIN goal_progress gp ON g.id = gp.goal_id
+                LEFT JOIN tasks t ON g.target_task_id = t.id
+                WHERE gp.is_completed = 1 
+                ${since ? "AND gp.completed_at > datetime(?)" : ""}
+                ORDER BY gp.completed_at DESC
+                LIMIT 10
+            `, since ? [since] : []);
+
+            res.json({ achievements: recentlyCompleted });
+        } catch (e) {
+            console.error(e);
+            res.status(500).json({ error: 'check achievements failed' });
+        }
+    });
+
     // Packs endpoints
     app.get('/api/packs', async (_req, res) => {
         try {

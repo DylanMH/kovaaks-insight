@@ -282,7 +282,7 @@ Clear All Filters
 
       {/* Tasks Table - Collapsible section when viewing all tasks */}
       {(!selectedTask || selectedTask === "all") && (
-        <details open className="bg-theme-secondary border border-theme-primary rounded-lg">
+        <details className="bg-theme-secondary border border-theme-primary rounded-lg">
           <summary className="px-6 py-4 cursor-pointer hover:bg-theme-hover transition-colors font-semibold text-white flex items-center justify-between">
             <span className="flex items-center gap-2">
 Task Performance Overview
