@@ -18,7 +18,6 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
 
 ### 🎯 **Goal System**
 - Auto-generated personalized goals based on your performance
-- Manual goal creation for specific scenarios
 - Visual progress tracking with completion percentages
 - Smart goal recommendations
 
@@ -172,12 +171,12 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
-- [ ] Multiple UI themes
 - [ ] Advanced filtering options
 - [ ] Export data to CSV/JSON
 - [ ] Comparison mode (compare multiple sessions)
 - [ ] Cloud backup/sync (optional)
 - [ ] macOS and Linux support
+- [ ] Task specific goals
 
 ---
 

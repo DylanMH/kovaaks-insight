@@ -34,18 +34,23 @@
       "backend/**/*",
       "public/**/*",
       "frontend/dist/**/*",
+      "assets/**/*",
       "package.json"
     ],
 
 
     "asar": true,
     "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      }
     ],
 
     "win": {
       "target": [ "nsis" ],
       "artifactName": "Kovaaks-Insight-${version}-Setup.${ext}",
-      "icon": "build/icon.ico"
+      "icon": "assets/icon.ico"
     },
     "nsis": {
       "oneClick": true,
