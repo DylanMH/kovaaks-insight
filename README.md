@@ -192,8 +192,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/kovaaks-insight/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/kovaaks-insight/discussions)
+- **Issues**: [GitHub Issues](https://github.com/DylanMH/kovaaks-insight/issues)
 
 ## 🗺️ Roadmap
 
