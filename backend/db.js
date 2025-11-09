@@ -140,6 +140,37 @@ function initDb(dbPath) {
       )
     `);
 
+        // Sessions table - manual session tracking
+        db.run(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        notes TEXT,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        is_active BOOLEAN DEFAULT 1,
+        total_runs INTEGER DEFAULT 0,
+        total_duration REAL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+
+        // Comparisons table - saved comparison presets
+        db.run(`
+      CREATE TABLE IF NOT EXISTS comparisons (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        description TEXT,
+        left_type TEXT NOT NULL,
+        left_value TEXT NOT NULL,
+        right_type TEXT NOT NULL,
+        right_value TEXT NOT NULL,
+        task_scope TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        last_used_at TEXT
+      )
+    `);
+
         // Create indexes for performance
         db.run(`CREATE UNIQUE INDEX IF NOT EXISTS runs_hash_idx ON runs(hash)`);
         db.run(`CREATE INDEX IF NOT EXISTS runs_task_time_idx ON runs(task_id, played_at)`);
@@ -147,6 +178,8 @@ function initDb(dbPath) {
         db.run(`CREATE INDEX IF NOT EXISTS goal_progress_completed_idx ON goal_progress(is_completed)`);
         db.run(`CREATE INDEX IF NOT EXISTS pack_tasks_pack_idx ON pack_tasks(pack_id)`);
         db.run(`CREATE INDEX IF NOT EXISTS pack_tasks_task_idx ON pack_tasks(task_id)`);
+        db.run(`CREATE INDEX IF NOT EXISTS sessions_active_idx ON sessions(is_active)`);
+        db.run(`CREATE INDEX IF NOT EXISTS sessions_time_idx ON sessions(started_at, ended_at)`);
     });
 
     return {

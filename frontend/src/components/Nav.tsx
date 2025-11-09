@@ -23,6 +23,9 @@ export default function Nav() {
                     <Link to="/stats" className={getNavLinkClass("/stats")}>
                         Stats
                     </Link>
+                    <Link to="/sessions" className={getNavLinkClass("/sessions")}>
+                        Sessions
+                    </Link>
                     <Link to="/goals" className={getNavLinkClass("/goals")}>
                         Goals
                     </Link>

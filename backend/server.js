@@ -1,22 +1,87 @@
 // backend/server.js
+// Main Express API server for Kovaaks Insight
 const express = require('express');
 const path = require('path');
 const goals = require('./goals');
 const packs = require('./packs');
 const settings = require('./settings');
 const { scanAllCsvs } = require('./watcher');
+const { aggregateRuns, getTopRunsForTask, compareAggregations, resolveWindow } = require('./aggregator');
 
+/**
+ * Get ISO timestamp for X days ago
+ */
 function daysAgoIso(days) {
     const d = new Date();
     d.setDate(d.getDate() - days);
     return d.toISOString();
 }
 
-// Store SSE clients for real-time updates
+/**
+ * Build time filter for queries - handles 'today' vs 'X days ago'
+ * Returns { where, params } for SQL query building
+ */
+function buildTimeFilter(days) {
+    if (!days) return { where: '', params: [] };
+    
+    const numDays = Number(days);
+    if (numDays === 1) {
+        // Today from midnight (not last 24 hours)
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return {
+            where: 'r.played_at >= ?',
+            params: [today.toISOString()]
+        };
+    }
+    // X days ago
+    return {
+        where: 'r.played_at >= ?',
+        params: [daysAgoIso(numDays)]
+    };
+}
+
+/**
+ * Convert window definition to human-readable label
+ */
+function getWindowLabel(windowDef) {
+    if (typeof windowDef === 'string') {
+        const labels = {
+            'today': 'Today',
+            'yesterday': 'Yesterday',
+            'thisWeek': 'This Week',
+            'lastWeek': 'Last Week',
+            'thisMonth': 'This Month',
+            'lastMonth': 'Last Month'
+        };
+        return labels[windowDef] || windowDef;
+    }
+    
+    if (windowDef.type === 'relative') {
+        const { hours, hoursAgo = 0 } = windowDef;
+        if (hoursAgo > 0) {
+            return `${hoursAgo + hours}h to ${hoursAgo}h ago`;
+        }
+        return `Last ${hours}h`;
+    }
+    
+    if (windowDef.type === 'timeframe') {
+        return 'Custom Range';
+    }
+    
+    return 'Unknown';
+}
+
+// ===========================================
+// SSE (Server-Sent Events) for real-time updates
+// ===========================================
+
 let sseClients = [];
 
+/**
+ * Notify all connected clients about new run data
+ */
 function notifyNewRun() {
-    // Notify all connected clients that new data is available
     sseClients.forEach(client => {
         client.write(`data: ${JSON.stringify({ type: 'new-run' })}\n\n`);
     });
@@ -28,7 +93,7 @@ function startServer(db, port = 3000) {
     // Enable CORS for development (allows Vite dev server on port 5173 to access API)
     app.use((req, res, next) => {
         res.header('Access-Control-Allow-Origin', '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
         res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         if (req.method === 'OPTIONS') {
             return res.sendStatus(200);
@@ -92,7 +157,11 @@ function startServer(db, port = 3000) {
         );
     });
 
-    // Raw runs, optional task + days filters
+    // ===========================================
+    // RUNS ENDPOINTS
+    // ===========================================
+
+    // Get runs with optional filters (task, days, limit)
     app.get('/api/runs', async (req, res) => {
         try {
             const { task, days, limit } = req.query;
@@ -143,7 +212,11 @@ function startServer(db, port = 3000) {
         }
     });
 
-    // Global statistics overview
+    // ===========================================
+    // STATISTICS ENDPOINTS
+    // ===========================================
+
+    // Get global statistics with optional filtering
     app.get('/api/stats/global', async (req, res) => {
         try {
             const { days, pack_id, task } = req.query;
@@ -212,6 +285,11 @@ function startServer(db, port = 3000) {
             res.status(500).json({ error: 'global stats failed' });
         }
     });
+    // ===========================================
+    // TASKS ENDPOINTS
+    // ===========================================
+
+    // Get all tasks with basic stats
     app.get('/api/tasks', async (_req, res) => {
         try {
             const rows = await db.all(`
@@ -573,7 +651,6 @@ function startServer(db, port = 3000) {
             `, [targetDate]);
             
             console.log(`   Found ${runs.length} runs for ${targetDate}`);
-            
             res.json(runs);
         } catch (e) {
             console.error('Error fetching runs by day:', e);
@@ -581,7 +658,11 @@ function startServer(db, port = 3000) {
         }
     });
 
-    // User profile
+    // ===========================================
+    // USER PROFILE ENDPOINT
+    // ===========================================
+
+    // Get user profile with computed stats from runs
     app.get('/api/user/profile', async (_req, res) => {
         try {
             let user = await db.get(`SELECT * FROM users WHERE id = 1`);
@@ -614,7 +695,11 @@ function startServer(db, port = 3000) {
         }
     });
 
-    // Goals endpoints
+    // ===========================================
+    // GOALS ENDPOINTS
+    // ===========================================
+
+    // Get goals with optional filtering (active, completed, limit)
     app.get('/api/goals', async (req, res) => {
         try {
             const { active, completed, limit } = req.query;
@@ -769,7 +854,11 @@ function startServer(db, port = 3000) {
         }
     });
 
-    // Packs endpoints
+    // ===========================================
+    // PACKS ENDPOINTS
+    // ===========================================
+
+    // Get all packs with task count
     app.get('/api/packs', async (_req, res) => {
         try {
             const rows = await db.all(`
@@ -869,7 +958,11 @@ function startServer(db, port = 3000) {
         }
     });
 
-    // Settings endpoints
+    // ===========================================
+    // SETTINGS ENDPOINTS
+    // ===========================================
+
+    // Get all application settings
     app.get('/api/settings', async (_req, res) => {
         try {
             // Get username from users table (same as profile page)
@@ -973,6 +1066,412 @@ function startServer(db, port = 3000) {
         } catch (e) {
             console.error('Rescan error:', e);
             res.status(500).json({ error: 'Failed to rescan folder: ' + e.message });
+        }
+    });
+
+    // ===========================================
+    // SESSION MANAGEMENT ENDPOINTS
+    // ===========================================
+
+    /**
+     * Start a new training session
+     * Only one session can be active at a time
+     */
+    app.post('/api/sessions/start', async (req, res) => {
+        try {
+            const { name, notes } = req.body;
+            const startedAt = new Date().toISOString();
+
+            // Check if there's already an active session
+            const existing = await db.get('SELECT id FROM sessions WHERE is_active = 1');
+            if (existing) {
+                return res.status(400).json({ error: 'A session is already active. End it before starting a new one.' });
+            }
+
+            const result = await db.run(`
+                INSERT INTO sessions (name, notes, started_at, is_active)
+                VALUES (?, ?, ?, 1)
+            `, [name || null, notes || null, startedAt]);
+
+            const session = await db.get('SELECT * FROM sessions WHERE id = ?', [result.lastID]);
+            res.json(session);
+        } catch (e) {
+            console.error('Error starting session:', e);
+            res.status(500).json({ error: 'Failed to start session' });
+        }
+    });
+
+    /**
+     * End an active session and calculate stats from runs in the time window
+     */
+    app.post('/api/sessions/:id/end', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const endedAt = new Date().toISOString();
+
+            const session = await db.get('SELECT * FROM sessions WHERE id = ? AND is_active = 1', [id]);
+            if (!session) {
+                return res.status(404).json({ error: 'Active session not found' });
+            }
+
+            // Calculate totals from runs within the session time window
+            const stats = await db.get(`
+                SELECT 
+                    COUNT(*) as total_runs,
+                    SUM(duration) as total_duration
+                FROM runs
+                WHERE played_at >= ?
+                    AND played_at <= ?
+            `, [session.started_at, endedAt]);
+
+            // Update session
+            await db.run(`
+                UPDATE sessions 
+                SET ended_at = ?,
+                    is_active = 0,
+                    total_runs = ?,
+                    total_duration = ?
+                WHERE id = ?
+            `, [endedAt, stats.total_runs || 0, stats.total_duration || 0, id]);
+
+            const updated = await db.get('SELECT * FROM sessions WHERE id = ?', [id]);
+            res.json(updated);
+        } catch (e) {
+            console.error('Error ending session:', e);
+            res.status(500).json({ error: 'Failed to end session' });
+        }
+    });
+
+    /**
+     * Get all sessions with optional active filter
+     */
+    app.get('/api/sessions', async (req, res) => {
+        try {
+            const { active } = req.query;
+            let sql = 'SELECT * FROM sessions';
+            const params = [];
+
+            if (active === 'true') {
+                sql += ' WHERE is_active = 1';
+            }
+
+            sql += ' ORDER BY started_at DESC';
+
+            const sessions = await db.all(sql, params);
+            res.json(sessions);
+        } catch (e) {
+            console.error('Error fetching sessions:', e);
+            res.status(500).json({ error: 'Failed to fetch sessions' });
+        }
+    });
+
+    /**
+     * Get session details including all runs within the session time window
+     */
+    app.get('/api/sessions/:id', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const session = await db.get('SELECT * FROM sessions WHERE id = ?', [id]);
+
+            if (!session) {
+                return res.status(404).json({ error: 'Session not found' });
+            }
+
+            // Get runs within session time window
+            const endTime = session.ended_at || new Date().toISOString();
+            const runs = await db.all(`
+                SELECT 
+                    r.*,
+                    t.name as task_name
+                FROM runs r
+                JOIN tasks t ON t.id = r.task_id
+                WHERE r.played_at >= ?
+                    AND r.played_at <= ?
+                ORDER BY r.played_at DESC
+            `, [session.started_at, endTime]);
+
+            res.json({ ...session, runs });
+        } catch (e) {
+            console.error('Error fetching session:', e);
+            res.status(500).json({ error: 'Failed to fetch session details' });
+        }
+    });
+
+    /**
+     * Update session name and/or notes
+     */
+    app.patch('/api/sessions/:id', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const { name, notes } = req.body;
+
+            const updates = [];
+            const params = [];
+
+            if (name !== undefined) {
+                updates.push('name = ?');
+                params.push(name);
+            }
+            if (notes !== undefined) {
+                updates.push('notes = ?');
+                params.push(notes);
+            }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ error: 'No fields to update' });
+            }
+
+            params.push(id);
+            await db.run(`UPDATE sessions SET ${updates.join(', ')} WHERE id = ?`, params);
+
+            const session = await db.get('SELECT * FROM sessions WHERE id = ?', [id]);
+            res.json(session);
+        } catch (e) {
+            console.error('Error updating session:', e);
+            res.status(500).json({ error: 'Failed to update session' });
+        }
+    });
+
+    /**
+     * Delete a session (does not delete associated runs)
+     */
+    app.delete('/api/sessions/:id', async (req, res) => {
+        try {
+            const { id } = req.params;
+            await db.run('DELETE FROM sessions WHERE id = ?', [id]);
+            res.json({ success: true });
+        } catch (e) {
+            console.error('Error deleting session:', e);
+            res.status(500).json({ error: 'Failed to delete session' });
+        }
+    });
+
+    // ===========================================
+    // COMPARISON ENDPOINTS
+    // ===========================================
+
+    /**
+     * Run a comparison between two time windows
+     * Supports sessions, relative time blocks, and preset time ranges
+     * Does not save the comparison - use /api/comparisons/save for that
+     */
+    app.post('/api/comparisons/run', async (req, res) => {
+        try {
+            const { left, right, taskScope } = req.body;
+
+            if (!left || !right) {
+                return res.status(400).json({ error: 'Left and right windows are required' });
+            }
+
+            // Resolve window definitions to absolute timestamps and get labels
+            let leftWindow, rightWindow, leftLabel, rightLabel;
+
+            if (left.type === 'session') {
+                const session = await db.get('SELECT * FROM sessions WHERE id = ?', [left.sessionId]);
+                if (!session) {
+                    return res.status(404).json({ error: 'Left session not found' });
+                }
+                leftWindow = {
+                    startTime: session.started_at,
+                    endTime: session.ended_at || new Date().toISOString()
+                };
+                leftLabel = session.name || `Session ${session.id}`;
+            } else {
+                leftWindow = resolveWindow(left);
+                leftLabel = getWindowLabel(left);
+            }
+
+            if (right.type === 'session') {
+                const session = await db.get('SELECT * FROM sessions WHERE id = ?', [right.sessionId]);
+                if (!session) {
+                    return res.status(404).json({ error: 'Right session not found' });
+                }
+                rightWindow = {
+                    startTime: session.started_at,
+                    endTime: session.ended_at || new Date().toISOString()
+                };
+                rightLabel = session.name || `Session ${session.id}`;
+            } else {
+                rightWindow = resolveWindow(right);
+                rightLabel = getWindowLabel(right);
+            }
+
+            console.log('🔍 Comparison Debug:');
+            console.log('  Left:', leftLabel, leftWindow);
+            console.log('  Right:', rightLabel, rightWindow);
+
+            // Determine task filtering
+            let taskIds = null;
+            if (taskScope === 'specific' && Array.isArray(req.body.taskIds)) {
+                taskIds = req.body.taskIds;
+            }
+
+            // Aggregate both windows
+            const leftData = await aggregateRuns(db, { ...leftWindow, taskIds });
+            const rightData = await aggregateRuns(db, { ...rightWindow, taskIds });
+
+            console.log('  Left Data:', leftData.overall.count, 'runs,', leftData.byTask.length, 'tasks');
+            console.log('  Right Data:', rightData.overall.count, 'runs,', rightData.byTask.length, 'tasks');
+
+            // If task scope is 'shared', filter to only shared tasks
+            if (taskScope === 'shared') {
+                const leftTaskIds = new Set(leftData.byTask.map(t => t.task_id));
+                const rightTaskIds = new Set(rightData.byTask.map(t => t.task_id));
+                const sharedIds = [...leftTaskIds].filter(id => rightTaskIds.has(id));
+                
+                taskIds = sharedIds;
+                
+                // Re-aggregate with shared tasks only
+                if (sharedIds.length > 0) {
+                    const leftShared = await aggregateRuns(db, { ...leftWindow, taskIds: sharedIds });
+                    const rightShared = await aggregateRuns(db, { ...rightWindow, taskIds: sharedIds });
+                    
+                    const comparison = compareAggregations(leftShared, rightShared);
+                    comparison.labels = { left: leftLabel, right: rightLabel };
+                    return res.json(comparison);
+                }
+            }
+
+            // Compare aggregations
+            const comparison = compareAggregations(leftData, rightData);
+            comparison.labels = { left: leftLabel, right: rightLabel };
+            res.json(comparison);
+        } catch (e) {
+            console.error('Error running comparison:', e);
+            res.status(500).json({ error: 'Failed to run comparison: ' + e.message });
+        }
+    });
+
+    // Save a comparison preset
+    app.post('/api/comparisons/save', async (req, res) => {
+        try {
+            const { name, description, left, right, taskScope } = req.body;
+
+            if (!name || !left || !right) {
+                return res.status(400).json({ error: 'Name, left, and right are required' });
+            }
+
+            const result = await db.run(`
+                INSERT INTO comparisons (name, description, left_type, left_value, right_type, right_value, task_scope)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            `, [
+                name,
+                description || null,
+                left.type || 'timeframe',
+                JSON.stringify(left),
+                right.type || 'timeframe',
+                JSON.stringify(right),
+                taskScope || 'all'
+            ]);
+
+            const comparison = await db.get('SELECT * FROM comparisons WHERE id = ?', [result.lastID]);
+            res.json(comparison);
+        } catch (e) {
+            console.error('Error saving comparison:', e);
+            res.status(500).json({ error: 'Failed to save comparison' });
+        }
+    });
+
+    // Get all saved comparisons
+    app.get('/api/comparisons', async (_req, res) => {
+        try {
+            const comparisons = await db.all('SELECT * FROM comparisons ORDER BY created_at DESC');
+            res.json(comparisons);
+        } catch (e) {
+            console.error('Error fetching comparisons:', e);
+            res.status(500).json({ error: 'Failed to fetch comparisons' });
+        }
+    });
+
+    // Get and re-run a saved comparison
+    app.get('/api/comparisons/:id/run', async (req, res) => {
+        try {
+            const { id } = req.params;
+            const comparison = await db.get('SELECT * FROM comparisons WHERE id = ?', [id]);
+
+            if (!comparison) {
+                return res.status(404).json({ error: 'Comparison not found' });
+            }
+
+            // Update last_used_at
+            await db.run('UPDATE comparisons SET last_used_at = ? WHERE id = ?', [
+                new Date().toISOString(),
+                id
+            ]);
+
+            // Re-run the comparison with saved parameters
+            const left = JSON.parse(comparison.left_value);
+            const right = JSON.parse(comparison.right_value);
+
+            req.body = { left, right, taskScope: comparison.task_scope };
+            
+            // Delegate to the run endpoint logic (reuse the code)
+            // For simplicity, we'll inline it here
+            const leftWindow = resolveWindow(left);
+            const rightWindow = resolveWindow(right);
+
+            const leftData = await aggregateRuns(db, leftWindow);
+            const rightData = await aggregateRuns(db, rightWindow);
+
+            const result = compareAggregations(leftData, rightData);
+            res.json(result);
+        } catch (e) {
+            console.error('Error re-running comparison:', e);
+            res.status(500).json({ error: 'Failed to re-run comparison: ' + e.message });
+        }
+    });
+
+    // Delete a comparison
+    app.delete('/api/comparisons/:id', async (req, res) => {
+        try {
+            const { id } = req.params;
+            await db.run('DELETE FROM comparisons WHERE id = ?', [id]);
+            res.json({ success: true });
+        } catch (e) {
+            console.error('Error deleting comparison:', e);
+            res.status(500).json({ error: 'Failed to delete comparison' });
+        }
+    });
+
+    // Aggregate data for a time window (generic utility)
+    app.post('/api/aggregate', async (req, res) => {
+        try {
+            const { startTime, endTime, taskIds } = req.body;
+
+            if (!startTime || !endTime) {
+                return res.status(400).json({ error: 'startTime and endTime are required' });
+            }
+
+            const data = await aggregateRuns(db, { startTime, endTime, taskIds });
+            res.json(data);
+        } catch (e) {
+            console.error('Error aggregating data:', e);
+            res.status(500).json({ error: 'Failed to aggregate data: ' + e.message });
+        }
+    });
+
+    // Get top runs for a task within a time window
+    app.get('/api/tasks/:taskId/top-runs', async (req, res) => {
+        try {
+            const { taskId } = req.params;
+            const { startTime, endTime, limit = 3, sortBy = 'score' } = req.query;
+
+            if (!startTime || !endTime) {
+                return res.status(400).json({ error: 'startTime and endTime are required' });
+            }
+
+            const runs = await getTopRunsForTask(db, {
+                startTime,
+                endTime,
+                taskId: parseInt(taskId),
+                limit: parseInt(limit),
+                sortBy
+            });
+
+            res.json(runs);
+        } catch (e) {
+            console.error('Error fetching top runs:', e);
+            res.status(500).json({ error: 'Failed to fetch top runs' });
         }
     });
 

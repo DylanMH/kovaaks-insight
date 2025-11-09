@@ -6,7 +6,7 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Built with](https://img.shields.io/badge/built%20with-Electron-47848F)
 
-👉 [Download the latest](https://github.com/DylanMH/kovaaks-insight/releases/tag/v1.0.1)
+👉 [Download the latest](https://github.com/DylanMH/kovaaks-insight/releases)
 
 ## ✨ Features
 
@@ -26,6 +26,17 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
 - Import Kovaak's playlist JSON files as packs
 - Filter stats by pack or individual scenarios
 - Quick-access pack statistics
+
+### 🎮 **Session Tracking & Comparison**
+- Manual session tracking with start/stop controls
+- Name and annotate your training sessions
+- Compare performance between any two time windows:
+  - Sessions vs sessions
+  - Today vs yesterday
+  - Custom time ranges
+  - Relative time blocks (last 24h, last week, etc.)
+- Overall and per-task performance breakdowns
+- Visual diff indicators showing improvement or decline
 
 ### 📈 **Advanced Analytics**
 - Moving average smoothing for trend visualization
@@ -83,8 +94,8 @@ A powerful desktop application for tracking, analyzing, and visualizing your Kov
 ### Windows Installer
 
 1. **Download the latest release**
-   - Go to [Releases](https://github.com/DylanMH/kovaaks-insight/releases/tag/v1.0.1)
-   - Download `Kovaaks-Insight-1.0.0-Setup.exe`
+   - Go to [Releases](https://github.com/DylanMH/kovaaks-insight/releases)
+   - Download `Kovaaks-Insight-Setup.exe`
 
 2. **Run the installer**
    - Double-click the downloaded `.exe` file
@@ -196,9 +207,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🗺️ Roadmap
 
+- [x] Session tracking and comparison mode
 - [ ] Advanced filtering options
 - [ ] Export data to CSV/JSON
-- [ ] Comparison mode (compare multiple sessions)
 - [ ] Cloud backup/sync (optional)
 - [ ] macOS and Linux support
 - [ ] Task specific goals

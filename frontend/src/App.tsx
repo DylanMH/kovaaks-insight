@@ -3,6 +3,7 @@ import Nav from "./components/Nav";
 import Profile from "./pages/Profile";
 import Stats from "./pages/Stats";
 import Goals from "./pages/Goals";
+import Sessions from "./pages/Sessions";
 import Settings from "./pages/Settings";
 import { ThemeProvider } from "./contexts/ThemeContext.tsx";
 import GoalNotification from "./components/GoalNotification";
@@ -31,6 +32,7 @@ function AppContent() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/goals" element={<Goals />} />
+          <Route path="/sessions" element={<Sessions />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
