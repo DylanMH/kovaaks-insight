@@ -211,7 +211,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - [ ] Advanced filtering options
 - [ ] Export data to CSV/JSON
 - [ ] Cloud backup/sync (optional)
-- [ ] macOS and Linux support
 - [ ] Task specific goals
 
 ---
